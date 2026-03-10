@@ -1,0 +1,39 @@
+
+services:
+  lakefs:
+    image: treeverse/lakefs:1.79
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "38000:8000"
+    environment:
+      - LAKEFS_LISTEN_ADDRESS=0.0.0.0:8000
+      - LAKEFS_LOGGING_LEVEL=DEBUG
+      - LAKEFS_AUTH_ENCRYPT_SECRET_KEY=random_secret
+      - LAKEFS_DATABASE_TYPE=postgres
+      - LAKEFS_DATABASE_POSTGRES_CONNECTION_STRING=postgres://lakefs:lakefs@postgres:5432/lakefs?sslmode=disable
+      - LAKEFS_BLOCKSTORE_TYPE=local
+      - LAKEFS_BLOCKSTORE_LOCAL_PATH=/home/lakefs
+      - LAKEFS_BLOCKSTORE_LOCAL_IMPORT_ENABLED=true
+    volumes:
+      - lakefs_data:/home/lakefs
+  postgres:
+    image: postgres:16.13
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U lakefs -d lakefs" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+    environment:
+      POSTGRES_DB: lakefs
+      POSTGRES_USER: lakefs
+      POSTGRES_PASSWORD: lakefs
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+
+volumes:
+  lakefs_data:
+  postgres_data:
