@@ -201,3 +201,18 @@ func (o *Objects) CreateObject(ctx context.Context, repository, branch string, o
 	}
 	return &reply, nil
 }
+
+type DeleteObjectOptions struct {
+	Force       bool   `url:"force,omitempty"`
+	NoTombstone bool   `url:"no_tombstone,omitempty"`
+	Path        string `url:"path,omitempty"`
+}
+
+func (o *Objects) DeleteObject(ctx context.Context, repository, branch string, opts *DeleteObjectOptions) error {
+	u := fmt.Sprintf("repositories/%s/branches/%s/objects", repository, branch)
+
+	_, err := o.client.InvokeWithCredential(ctx, http.MethodDelete, u, nil, nil, func(request *http.Request) error {
+		return ghttp.SetQuery(request, opts)
+	})
+	return err
+}
