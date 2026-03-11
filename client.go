@@ -38,6 +38,7 @@ type Client struct {
 	Commits      *Commits
 	Refs         *Refs
 	Objects      *Objects
+	Tags         *Tags
 	Staging      *Staging
 }
 
@@ -58,6 +59,7 @@ func NewClient(credential Credential, opts ...*Options) *Client {
 	c.Refs = (*Refs)(&c.common)
 	c.Commits = (*Commits)(&c.common)
 	c.Objects = (*Objects)(&c.common)
+	c.Tags = (*Tags)(&c.common)
 	c.Staging = (*Staging)(&c.common)
 
 	c.SetCredential(credential)

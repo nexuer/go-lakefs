@@ -3,7 +3,7 @@ package lakefs
 import "os"
 
 var testBasicAuth = &BasicAuth{
-	Endpoint:        "127.0.0.1:38000",
+	Endpoint:        os.Getenv("LAKEFS_ENDPOINT"),
 	AccessKeyID:     os.Getenv("LAKEFS_ACCESS_KEY_ID"),
 	SecretAccessKey: os.Getenv("LAKEFS_SECRET_ACCESS_KEY"),
 }
