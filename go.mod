@@ -1,6 +1,6 @@
 module github.com/nexuer/go-lakefs
 
-go 1.25.7
+go 1.21
 
 require github.com/nexuer/ghttp v0.0.0-20250829050611-03e1aeab3607
 
