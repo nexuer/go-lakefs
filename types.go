@@ -40,6 +40,13 @@ func NewTimestamp(t time.Time) *Timestamp {
 	return &Timestamp{t}
 }
 
+func (t *Timestamp) ToTime() time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.Time
+}
+
 func (t *Timestamp) MarshalJSON() ([]byte, error) {
 	if t == nil || t.IsZero() {
 		return []byte("0"), nil

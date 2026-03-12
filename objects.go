@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -215,4 +216,23 @@ func (o *Objects) DeleteObject(ctx context.Context, repository, branch string, o
 		return ghttp.SetQuery(request, opts)
 	})
 	return err
+}
+
+type ObjectCopyCreation struct {
+	SrcPath string `json:"src_path"`
+	SrcRef  string `json:"src_ref"`
+	Force   bool   `json:"force"`
+	Shallow bool   `json:"shallow"`
+}
+
+func (o *Objects) CopyObject(ctx context.Context, repository, branch, destPath string, opts *ObjectCopyCreation) (*ObjectStats, error) {
+	u := fmt.Sprintf("repositories/%s/branches/%s/objects/copy?dest_path=%s",
+		repository,
+		branch,
+		url.QueryEscape(destPath),
+	)
+
+	var record ObjectStats
+	_, err := o.client.InvokeWithCredential(ctx, http.MethodPost, u, opts, &record)
+	return &record, err
 }

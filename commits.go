@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type Commits service
@@ -40,7 +41,7 @@ type CommitCreation struct {
 func (c *Commits) CreateCommit(ctx context.Context, repository, branch string, commitCreation *CommitCreation) (*Commit, error) {
 	u := fmt.Sprintf("repositories/%s/branches/%s/commits", repository, branch)
 	if commitCreation != nil && commitCreation.SourceMetarange != "" {
-		u += fmt.Sprintf("?source_metarange=%s", commitCreation.SourceMetarange)
+		u += fmt.Sprintf("?source_metarange=%s", url.QueryEscape(commitCreation.SourceMetarange))
 	}
 	var row Commit
 	_, err := c.client.InvokeWithCredential(ctx, http.MethodPost, u, commitCreation, &row)

@@ -82,6 +82,7 @@ func writeJson(w http.ResponseWriter, data interface{}) {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
 		// 无论什么请求，都先设置 CORS header
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -93,7 +94,6 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-
 		// 继续处理实际请求
 		next.ServeHTTP(w, r)
 	})
