@@ -35,7 +35,14 @@ docker compose up -d
 
 1. 初次访问：http://localhost:38000
 2. 按照页面提示设置管理员账号和密钥。
-
+3. 添加一条host，预签名地址域名会是`minio`
+```shell
+127.0.0.1 minio
+```
+#### minio
+- 控制台访问地址：http://localhost:9001/
+- 账号：lakefsadmin
+- 密码：lakefsadmin
 #### 停止 & 卸载
 - 停止但保留数据：
 ```shell
@@ -45,6 +52,11 @@ docker compose down
 ```shell
 docker compose down --volumes
 ```
+
+## 常见问题
+1. 预签名地址不能`PUT`上传？
+
+    尝试关闭代理软件
 
 ## 相关链接
 - lakeFS 官方文档：https://docs.lakefs.io/
