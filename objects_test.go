@@ -15,7 +15,7 @@ func TestObjects_CreateObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	obj, err := client.Objects.CreateObject(context.Background(), "ua-1715352869", "main", file, &CreateObjectOptions{
+	obj, err := client.Objects.CreateObject(context.Background(), "quickstart", "main", file, &CreateObjectOptions{
 		Path: "go.mod",
 	})
 	if err != nil {
