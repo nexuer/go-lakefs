@@ -30,6 +30,9 @@ func (r *Repositories) ListRepositories(ctx context.Context, opts *ListRepositor
 	u := "repositories"
 	var records Records[Repository]
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &records)
+	if err != nil {
+		return nil, err
+	}
 	return &records, err
 }
 
@@ -37,6 +40,9 @@ func (r *Repositories) GetRepository(ctx context.Context, id string) (*Repositor
 	u := fmt.Sprintf("repositories/%s", id)
 	var repository Repository
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &repository)
+	if err != nil {
+		return nil, err
+	}
 	return &repository, err
 }
 
@@ -53,6 +59,9 @@ func (r *Repositories) CreateRepository(ctx context.Context, repositoryCreation 
 	u := "repositories"
 	var respData Repository
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodPost, u, repositoryCreation, &respData)
+	if err != nil {
+		return nil, err
+	}
 	return &respData, err
 }
 
@@ -60,6 +69,9 @@ func (r *Repositories) CreateBareRepository(ctx context.Context, repositoryCreat
 	u := "repositories?bare=true"
 	var respData Repository
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodPost, u, repositoryCreation, &respData)
+	if err != nil {
+		return nil, err
+	}
 	return &respData, err
 }
 
@@ -73,6 +85,9 @@ func (r *Repositories) DeleteRepository(ctx context.Context, id string, opts ...
 		u += "?force=true"
 	}
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodDelete, u, nil, nil)
+	if err != nil {
+		return err
+	}
 	return err
 }
 
@@ -82,6 +97,9 @@ func (r *Repositories) GetRepositoryMetadata(ctx context.Context, id string) (Re
 	u := fmt.Sprintf("repositories/%s/metadata", id)
 	var metadata RepositoryMetadata
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &metadata)
+	if err != nil {
+		return nil, err
+	}
 	return metadata, err
 }
 
@@ -99,18 +117,27 @@ func (r *Repositories) GetRepositoryGCRules(ctx context.Context, id string) (*Re
 	u := fmt.Sprintf("repositories/%s/settings/gc_rules", id)
 	var rules RepositoryGCRules
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &rules)
+	if err != nil {
+		return nil, err
+	}
 	return &rules, err
 }
 
 func (r *Repositories) PutRepositoryGCRules(ctx context.Context, id string, rules *RepositoryGCRules) error {
 	u := fmt.Sprintf("repositories/%s/settings/gc_rules", id)
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodPut, u, rules, nil)
+	if err != nil {
+		return err
+	}
 	return err
 }
 
 func (r *Repositories) DeleteRepositoryGCRules(ctx context.Context, id string) error {
 	u := fmt.Sprintf("repositories/%s/settings/gc_rules", id)
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodDelete, u, nil, nil)
+	if err != nil {
+		return err
+	}
 	return err
 }
 
@@ -122,6 +149,9 @@ func (r *Repositories) GetBranchProtectionRules(ctx context.Context, id string) 
 	u := fmt.Sprintf("repositories/%s/settings/branch_protection", id)
 	var rules []*BranchProtectionRule
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &rules)
+	if err != nil {
+		return nil, err
+	}
 	return rules, err
 }
 

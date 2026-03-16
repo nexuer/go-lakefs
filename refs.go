@@ -28,5 +28,8 @@ func (r *Refs) ListCommits(ctx context.Context, repository, ref string, opts *Li
 	u := fmt.Sprintf("repositories/%s/refs/%s/commits", repository, ref)
 	var records Records[Commit]
 	_, err := r.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &records)
+	if err != nil {
+		return nil, err
+	}
 	return &records, err
 }

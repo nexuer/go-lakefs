@@ -25,6 +25,9 @@ func (c *Commits) GetCommit(ctx context.Context, repository, commitID string) (*
 	u := fmt.Sprintf("repositories/%s/commits/%s", repository, commitID)
 	var commit Commit
 	_, err := c.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &commit)
+	if err != nil {
+		return nil, err
+	}
 	return &commit, err
 }
 
@@ -45,5 +48,8 @@ func (c *Commits) CreateCommit(ctx context.Context, repository, branch string, c
 	}
 	var row Commit
 	_, err := c.client.InvokeWithCredential(ctx, http.MethodPost, u, commitCreation, &row)
+	if err != nil {
+		return nil, err
+	}
 	return &row, err
 }

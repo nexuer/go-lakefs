@@ -61,3 +61,16 @@ func TestObjects_ObjectExists(t *testing.T) {
 	fmt.Printf("Exists: %t\n", exists)
 	fmt.Printf("Headers: %+v\n", headers)
 }
+
+func TestObjects_GetObjectMetadata(t *testing.T) {
+	client := testClient()
+	//presign := true
+	object, err := client.Objects.GetObjectMetadata(context.Background(), "ua-1715352869", "staging-ds", &GetObjectMetadataOptions{
+		Path: "Trainingdata.jsonl.1773628775650",
+		//Presign: &presign,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("Metadata: %+v\n", object)
+}

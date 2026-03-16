@@ -19,6 +19,9 @@ func (b *Branches) ListBranches(ctx context.Context, repository string, opts *Li
 	u := fmt.Sprintf("repositories/%s/branches", repository)
 	var records Records[Ref]
 	_, err := b.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &records)
+	if err != nil {
+		return nil, err
+	}
 	return &records, err
 }
 
@@ -26,6 +29,9 @@ func (b *Branches) GetBranch(ctx context.Context, repository, branch string) (*R
 	u := fmt.Sprintf("repositories/%s/branches/%s", repository, branch)
 	var row Ref
 	_, err := b.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &row)
+	if err != nil {
+		return nil, err
+	}
 	return &row, err
 }
 
@@ -91,5 +97,8 @@ func (b *Branches) Diff(ctx context.Context, repository, branch string, opts *Di
 	u := fmt.Sprintf("repositories/%s/branches/%s/diff", repository, branch)
 	var records Records[Diff]
 	_, err := b.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &records)
+	if err != nil {
+		return nil, err
+	}
 	return &records, err
 }

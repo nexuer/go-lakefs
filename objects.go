@@ -185,6 +185,9 @@ func (o *Objects) ListObjects(ctx context.Context, repository, ref string, opts 
 	u := fmt.Sprintf("repositories/%s/refs/%s/objects/ls", repository, ref)
 	var records Records[ObjectStats]
 	_, err := o.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &records)
+	if err != nil {
+		return nil, err
+	}
 	return &records, err
 }
 
@@ -218,6 +221,22 @@ func (o *Objects) DeleteObject(ctx context.Context, repository, branch string, o
 	return err
 }
 
+type GetObjectMetadataOptions struct {
+	Path         string `url:"path,omitempty"`
+	UserMetadata *bool  `url:"user_metadata,omitempty"`
+	Presign      *bool  `url:"presign,omitempty"`
+}
+
+func (o *Objects) GetObjectMetadata(ctx context.Context, repository, ref string, opts *GetObjectMetadataOptions) (*ObjectStats, error) {
+	u := fmt.Sprintf("repositories/%s/refs/%s/objects/stat", repository, ref)
+	var reply ObjectStats
+	_, err := o.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &reply)
+	if err != nil {
+		return nil, err
+	}
+	return &reply, nil
+}
+
 type ObjectCopyCreation struct {
 	SrcPath string `json:"src_path"`
 	SrcRef  string `json:"src_ref"`
@@ -234,5 +253,8 @@ func (o *Objects) CopyObject(ctx context.Context, repository, branch, destPath s
 
 	var record ObjectStats
 	_, err := o.client.InvokeWithCredential(ctx, http.MethodPost, u, opts, &record)
+	if err != nil {
+		return nil, err
+	}
 	return &record, err
 }

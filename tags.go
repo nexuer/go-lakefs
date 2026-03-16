@@ -18,6 +18,9 @@ func (t *Tags) ListTags(ctx context.Context, repository string, opts *ListTagsOp
 	u := fmt.Sprintf("repositories/%s/tags", repository)
 	var records Records[Ref]
 	_, err := t.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &records)
+	if err != nil {
+		return nil, err
+	}
 	return &records, err
 }
 
@@ -31,6 +34,9 @@ func (t *Tags) CreateTag(ctx context.Context, repository string, tagCreation *Ta
 	u := fmt.Sprintf("repositories/%s/tags", repository)
 	var row Ref
 	_, err := t.client.InvokeWithCredential(ctx, http.MethodPost, u, tagCreation, &row)
+	if err != nil {
+		return nil, err
+	}
 	return &row, err
 }
 
@@ -51,5 +57,8 @@ func (t *Tags) GetTag(ctx context.Context, repository string, tag string) (*Ref,
 	u := fmt.Sprintf("repositories/%s/tags/%s", repository, tag)
 	var row Ref
 	_, err := t.client.InvokeWithCredential(ctx, http.MethodGet, u, nil, &row)
+	if err != nil {
+		return nil, err
+	}
 	return &row, err
 }

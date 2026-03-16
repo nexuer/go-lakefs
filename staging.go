@@ -26,6 +26,9 @@ func (s *Staging) GetBacking(ctx context.Context, repository, branch string, opt
 	u := fmt.Sprintf("repositories/%s/branches/%s/staging/backing", repository, branch)
 	var row StagingLocation
 	_, err := s.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, &row)
+	if err != nil {
+		return nil, err
+	}
 	return &row, err
 }
 
@@ -73,5 +76,8 @@ func (s *Staging) PutBacking(ctx context.Context, repository, branch string, opt
 	}
 	var row ObjectStats
 	_, err := s.client.InvokeWithCredential(ctx, http.MethodPut, u, opts.StagingMetadata, &row, opts.Request()...)
+	if err != nil {
+		return nil, err
+	}
 	return &row, err
 }
