@@ -4,8 +4,25 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"testing"
 )
+
+func TestObjects_CreateObject(t *testing.T) {
+	client := testClient()
+
+	file, err := os.Open("./go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj, err := client.Objects.CreateObject(context.Background(), "ua-1715352869", "main", file, &CreateObjectOptions{
+		Path: "go.mod",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(obj)
+}
 
 func TestObjects_ListObjects(t *testing.T) {
 	client := testClient()

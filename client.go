@@ -145,3 +145,24 @@ func (c *Client) Invoke(ctx context.Context, method, path string, args any, repl
 
 	return c.cc.Invoke(ctx, method, path, args, reply, opts)
 }
+
+func (c *Client) DoWithCredential(req *http.Request, fn ...ghttp.RequestFunc) (*http.Response, error) {
+	if c.credential == nil {
+		return nil, errors.New("credential is nil")
+	}
+	fns := make([]ghttp.RequestFunc, 1, len(fn)+1)
+	fns[0] = func(request *http.Request) error {
+		c.credential.BeforeRequest(request)
+		return nil
+	}
+	fns = append(fns, fn...)
+	return c.Do(req, fns...)
+}
+
+func (c *Client) Do(req *http.Request, fn ...ghttp.RequestFunc) (*http.Response, error) {
+	opts := &ghttp.CallOptions{
+		BeforeHooks: fn,
+	}
+
+	return c.cc.Do(req, opts)
+}

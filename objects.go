@@ -1,9 +1,11 @@
 package lakefs
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -133,33 +135,6 @@ func (o *Objects) ObjectExists(ctx context.Context, repository, ref string, opts
 	return true, &headers, nil
 }
 
-type CreateObjectOptions struct {
-	IfNoneMatch string `url:"-"`
-	IfMatch     string `url:"-"`
-
-	Force bool   `url:"force,omitempty"`
-	Path  string `url:"path,omitempty"`
-}
-
-func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
-	if c == nil {
-		return nil
-	}
-	return []ghttp.RequestFunc{
-		func(request *http.Request) error {
-			if c.IfMatch != "" {
-				request.Header.Set("If-Match", c.IfMatch)
-			}
-
-			if c.IfNoneMatch != "" {
-				request.Header.Set("If-None-Match", c.IfNoneMatch)
-			}
-
-			return nil
-		},
-	}
-}
-
 type ObjectStats struct {
 	Path                  string             `json:"path"`
 	PathType              PathType           `json:"path_type"`
@@ -191,16 +166,73 @@ func (o *Objects) ListObjects(ctx context.Context, repository, ref string, opts 
 	return &records, err
 }
 
+type CreateObjectOptions struct {
+	IfNoneMatch string `url:"-"`
+	IfMatch     string `url:"-"`
+
+	Force bool   `url:"force,omitempty"`
+	Path  string `url:"path,omitempty"`
+}
+
+func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
+	if c == nil {
+		return nil
+	}
+	return []ghttp.RequestFunc{
+		func(request *http.Request) error {
+			if c.IfMatch != "" {
+				request.Header.Set("If-Match", c.IfMatch)
+			}
+
+			if c.IfNoneMatch != "" {
+				request.Header.Set("If-None-Match", c.IfNoneMatch)
+			}
+
+			return nil
+		},
+	}
+}
+
 // CreateObject
-// todo: 待完善
-// 适用场景：单次请求上传一个完整文件
+// 适用场景：单次请求上传一个完整小文件
 // 大文件或要求性能推荐走 S3 Gateway，用 aws-sdk-go-v2 的 manager.Uploader，它会自动处理分块、并发上传、失败重试等
-func (o *Objects) CreateObject(ctx context.Context, repository, branch string, opts *CreateObjectOptions) (*ObjectStats, error) {
-	u := fmt.Sprintf("repositories/%s/branches/%s/objects", repository, branch)
-	//w := multipart.NewWriter()
-	var reply ObjectStats
-	_, err := o.client.InvokeWithCredential(ctx, http.MethodPost, u, opts, &reply, opts.Request()...)
+func (o *Objects) CreateObject(ctx context.Context, repository, branch string, reader io.Reader, opts *CreateObjectOptions) (*ObjectStats, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("content", opts.Path)
 	if err != nil {
+		return nil, err
+	}
+
+	_, err = io.Copy(part, reader)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = writer.Close(); err != nil {
+		return nil, err
+	}
+
+	u := o.client.API(fmt.Sprintf("repositories/%s/branches/%s/objects", repository, branch))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, &body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	err = ghttp.SetQuery(req, opts)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := o.client.DoWithCredential(req, opts.Request()...)
+	if err != nil {
+		return nil, err
+	}
+	var reply ObjectStats
+	if err = ghttp.BindResponseBody(resp, &reply); err != nil {
 		return nil, err
 	}
 	return &reply, nil
