@@ -40,11 +40,22 @@ func NewTimestamp(t time.Time) *Timestamp {
 	return &Timestamp{t}
 }
 
+func NewTimestampFromUnix(timestamp int64) *Timestamp {
+	return &Timestamp{time.Unix(timestamp, 0)}
+}
+
 func (t *Timestamp) ToTime() time.Time {
 	if t == nil {
 		return time.Time{}
 	}
 	return t.Time
+}
+
+func (t *Timestamp) ToUnix() int64 {
+	if t == nil {
+		return time.Time{}.Unix()
+	}
+	return t.Time.Unix()
 }
 
 func (t *Timestamp) MarshalJSON() ([]byte, error) {
@@ -130,7 +141,7 @@ type Diff struct {
 
 type DiffObjectStat struct {
 	Checksum    string             `json:"checksum,omitempty"`
-	Mtime       int64              `json:"mtime,omitempty"`
+	Mtime       *Timestamp         `json:"mtime,omitempty"`
 	ContentType string             `json:"content_type,omitempty"`
 	Metadata    ObjectUserMetadata `json:"metadata,omitempty"`
 }

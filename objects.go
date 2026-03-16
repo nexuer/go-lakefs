@@ -167,7 +167,7 @@ type ObjectStats struct {
 	PhysicalAddressExpiry int64              `json:"physical_address_expiry"`
 	Checksum              string             `json:"checksum"`
 	SizeBytes             int64              `json:"size_bytes"`
-	Mtime                 int64              `json:"mtime"`
+	Mtime                 *Timestamp         `json:"mtime"`
 	Metadata              ObjectUserMetadata `json:"metadata"`
 	ContentType           string             `json:"content_type"`
 }

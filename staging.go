@@ -62,7 +62,7 @@ type StagingMetadata struct {
 	SizeBytes    int64             `json:"size_bytes"`
 	UserMetadata map[string]string `json:"user_metadata"`
 	ContentType  string            `json:"content_type"`
-	Mtime        int64             `json:"mtime"`
+	Mtime        *Timestamp        `json:"mtime"`
 	Force        bool              `json:"force"`
 }
 
