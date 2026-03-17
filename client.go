@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/nexuer/ghttp"
@@ -26,7 +28,10 @@ type Options struct {
 }
 
 type Client struct {
-	cc *ghttp.Client
+	mu sync.RWMutex
+
+	cc       *ghttp.Client
+	s3Client *s3Client
 
 	apiVersion APIVersion
 	credential Credential
@@ -66,15 +71,29 @@ func NewClient(credential Credential, opts ...*Options) *Client {
 	return c
 }
 
+func (c *Client) s3() *s3Client {
+	c.mu.RLocker()
+	defer c.mu.RLocker()
+	return c.s3Client
+}
+
 func (c *Client) SetCredential(credential Credential) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var endpoint string
+	c.s3Client = nil
 	if credential != nil {
 		endpoint = credential.GetEndpoint()
+		s3cc, err := newS3Client(credential)
+		if err != nil {
+			slog.Info(fmt.Sprintf("unable to create S3 client: %v", err))
+			return
+		}
+		c.s3Client = s3cc
 	}
 
 	c.cc.SetEndpoint(endpoint)
 	c.credential = credential
-
 }
 
 func (c *Client) parseOptions(opts ...*Options) []ghttp.ClientOption {

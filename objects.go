@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/nexuer/ghttp"
 )
 
@@ -30,8 +33,27 @@ type GetObjectContentOptions struct {
 	Range       *RangeByteSize `url:"-"`
 	IfNoneMatch string         `url:"-"`
 
-	Path    string `url:"path,omitempty"`
-	Presign *bool  `url:"presign,omitempty"`
+	Path string `url:"path,omitempty"`
+
+	Transfer *TransferOptions `url:"-"`
+}
+
+func (g *GetObjectContentOptions) setS3Options(input *transfermanager.GetObjectInput) {
+	if g == nil {
+		return
+	}
+	if g.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(g.IfNoneMatch)
+	}
+}
+
+func (g *GetObjectContentOptions) setS3Options0(input *s3.GetObjectInput) {
+	if g == nil {
+		return
+	}
+	if g.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(g.IfNoneMatch)
+	}
 }
 
 func (g *GetObjectContentOptions) Request() []ghttp.RequestFunc {
@@ -83,6 +105,11 @@ type ObjectContent struct {
 }
 
 func (o *Objects) GetObjectContent(ctx context.Context, repository, ref string, opts *GetObjectContentOptions) (*ObjectContent, error) {
+	s3cc := o.client.s3()
+	if s3cc != nil {
+		return s3cc.GetObjectContent(ctx, repository, ref, opts)
+	}
+
 	u := fmt.Sprintf("repositories/%s/refs/%s/objects", repository, ref)
 	resp, err := o.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, nil, opts.Request()...)
 	if err != nil {
@@ -172,6 +199,20 @@ type CreateObjectOptions struct {
 
 	Force bool   `url:"force,omitempty"`
 	Path  string `url:"path,omitempty"`
+
+	Transfer *TransferOptions `url:"-"`
+}
+
+func (c *CreateObjectOptions) setS3Options(input *transfermanager.UploadObjectInput) {
+	if c == nil {
+		return
+	}
+	if c.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(c.IfNoneMatch)
+	}
+	if c.IfMatch != "" {
+		input.IfMatch = aws.String(c.IfMatch)
+	}
 }
 
 func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
@@ -193,10 +234,20 @@ func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
 	}
 }
 
-// CreateObject
-// 适用场景：单次请求上传一个完整小文件
-// 大文件或要求性能推荐走 S3 Gateway，用 aws-sdk-go-v2 的 manager.Uploader，它会自动处理分块、并发上传、失败重试等
+// CreateObject 直接上传文件到lakeFS
+// 如果你追求极致的上传性能（尤其是针对 TB 级数据或高并发场景），请走预签名 (Pre-signed) 模式
 func (o *Objects) CreateObject(ctx context.Context, repository, branch string, reader io.Reader, opts *CreateObjectOptions) (*ObjectStats, error) {
+	s3cc := o.client.s3()
+	if s3cc != nil {
+		err := s3cc.CreateObject(ctx, repository, branch, reader, opts)
+		if err != nil {
+			return nil, err
+		}
+		return o.GetObjectMetadata(ctx, repository, branch, &GetObjectMetadataOptions{
+			Path: opts.Path,
+		})
+	}
+
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 

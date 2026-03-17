@@ -15,8 +15,22 @@ func TestObjects_CreateObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer file.Close()
 	obj, err := client.Objects.CreateObject(context.Background(), "quickstart", "main", file, &CreateObjectOptions{
 		Path: "go.mod",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(obj)
+
+	file2, err := os.Open("./go.sum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file2.Close()
+	obj, err = client.Objects.CreateObject(context.Background(), "quickstart", "main", file2, &CreateObjectOptions{
+		Path: "subdir/go.sum",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -39,8 +53,9 @@ func TestObjects_ListObjects(t *testing.T) {
 func TestObjects_GetObjectContent(t *testing.T) {
 	client := testClient()
 
+	path := "go.mod"
 	object, err := client.Objects.GetObjectContent(context.Background(), "quickstart", "main", &GetObjectContentOptions{
-		Path: "README.md",
+		Path: path,
 		Range: &RangeByteSize{
 			Start: 0,
 			End:   10,
@@ -51,7 +66,7 @@ func TestObjects_GetObjectContent(t *testing.T) {
 	}
 	defer object.Body.Close()
 	scanner := bufio.NewScanner(object.Body)
-	fmt.Println("---------------------------- README.md ----------------------------")
+	fmt.Printf("---------------------------- %s ----------------------------\n", path)
 	for scanner.Scan() {
 		line := scanner.Text()
 		fmt.Println(line)
