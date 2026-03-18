@@ -35,10 +35,21 @@ type GetObjectContentOptions struct {
 
 	Path string `url:"path,omitempty"`
 
-	Transfer *TransferOptions `url:"-"`
+	// S3 控制开关
+	// 如果为 true，强制不使用 s3 的transfermanager，走 REST API
+	DisableS3 bool `url:"-"`
+	// 与Range互斥，设置了Range则不生效
+	S3GetObjectOptions *S3GetObjectOptions `url:"-"`
 }
 
-func (g *GetObjectContentOptions) setS3Options(input *transfermanager.GetObjectInput) {
+func (g *GetObjectContentOptions) setS3GetOptions(transfer *transfermanager.Options) {
+	if g == nil || g.S3GetObjectOptions == nil {
+		return
+	}
+	g.S3GetObjectOptions.set(transfer)
+}
+
+func (g *GetObjectContentOptions) setS3TransferInput(input *transfermanager.GetObjectInput) {
 	if g == nil {
 		return
 	}
@@ -47,7 +58,7 @@ func (g *GetObjectContentOptions) setS3Options(input *transfermanager.GetObjectI
 	}
 }
 
-func (g *GetObjectContentOptions) setS3Options0(input *s3.GetObjectInput) {
+func (g *GetObjectContentOptions) setS3Input(input *s3.GetObjectInput) {
 	if g == nil {
 		return
 	}
@@ -105,9 +116,11 @@ type ObjectContent struct {
 }
 
 func (o *Objects) GetObjectContent(ctx context.Context, repository, ref string, opts *GetObjectContentOptions) (*ObjectContent, error) {
-	s3cc := o.client.s3()
-	if s3cc != nil {
-		return s3cc.GetObjectContent(ctx, repository, ref, opts)
+	if opts != nil && !opts.DisableS3 {
+		s3cc := o.client.s3()
+		if s3cc != nil {
+			return s3cc.GetObjectContent(ctx, repository, ref, opts)
+		}
 	}
 
 	u := fmt.Sprintf("repositories/%s/refs/%s/objects", repository, ref)
@@ -200,10 +213,13 @@ type CreateObjectOptions struct {
 	Force bool   `url:"force,omitempty"`
 	Path  string `url:"path,omitempty"`
 
-	Transfer *TransferOptions `url:"-"`
+	// S3 控制开关
+	// 如果为 true，强制不使用 transfermanager，走 REST API
+	DisableS3       bool             `url:"-"`
+	S3UploadOptions *S3UploadOptions `url:"-"`
 }
 
-func (c *CreateObjectOptions) setS3Options(input *transfermanager.UploadObjectInput) {
+func (c *CreateObjectOptions) setS3TransferInput(input *transfermanager.UploadObjectInput) {
 	if c == nil {
 		return
 	}
@@ -213,6 +229,13 @@ func (c *CreateObjectOptions) setS3Options(input *transfermanager.UploadObjectIn
 	if c.IfMatch != "" {
 		input.IfMatch = aws.String(c.IfMatch)
 	}
+}
+
+func (c *CreateObjectOptions) setS3UploadOptions(transfer *transfermanager.Options) {
+	if c == nil || c.S3UploadOptions == nil {
+		return
+	}
+	c.S3UploadOptions.set(transfer)
 }
 
 func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
@@ -237,15 +260,17 @@ func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
 // CreateObject 直接上传文件到lakeFS
 // 如果你追求极致的上传性能（尤其是针对 TB 级数据或高并发场景），请走预签名 (Pre-signed) 模式
 func (o *Objects) CreateObject(ctx context.Context, repository, branch string, reader io.Reader, opts *CreateObjectOptions) (*ObjectStats, error) {
-	s3cc := o.client.s3()
-	if s3cc != nil {
-		err := s3cc.CreateObject(ctx, repository, branch, reader, opts)
-		if err != nil {
-			return nil, err
+	if opts != nil && !opts.DisableS3 {
+		s3cc := o.client.s3()
+		if s3cc != nil {
+			err := s3cc.CreateObject(ctx, repository, branch, reader, opts)
+			if err != nil {
+				return nil, err
+			}
+			return o.GetObjectMetadata(ctx, repository, branch, &GetObjectMetadataOptions{
+				Path: opts.Path,
+			})
 		}
-		return o.GetObjectMetadata(ctx, repository, branch, &GetObjectMetadataOptions{
-			Path: opts.Path,
-		})
 	}
 
 	var body bytes.Buffer

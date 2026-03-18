@@ -1,8 +1,12 @@
 package lakefs
 
-func testClient() *Client {
+func testClient(nodebug ...bool) *Client {
+	debug := true
+	if len(nodebug) > 0 && nodebug[0] {
+		debug = false
+	}
 	c := NewClient(testCredential(), &Options{
-		Debug: true,
+		Debug: debug,
 	})
 	return c
 }

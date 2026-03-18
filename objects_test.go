@@ -6,18 +6,28 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestObjects_CreateObject(t *testing.T) {
-	client := testClient()
+	client := testClient(true)
 
-	file, err := os.Open("./go.mod")
+	path := "./go.mod"
+	repoPath := "go.mod"
+
+	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	obj, err := client.Objects.CreateObject(context.Background(), "quickstart", "main", file, &CreateObjectOptions{
-		Path: "go.mod",
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	obj, err := client.Objects.CreateObject(ctx, "quickstart", "main", file, &CreateObjectOptions{
+		Path: repoPath,
+		//S3UploadOptions: &S3UploadOptions{
+		//	Concurrency:   10,
+		//	PartSizeBytes: 1024 * 1024 * 10,
+		//},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,15 +61,18 @@ func TestObjects_ListObjects(t *testing.T) {
 }
 
 func TestObjects_GetObjectContent(t *testing.T) {
-	client := testClient()
+	client := testClient(true)
 
 	path := "go.mod"
-	object, err := client.Objects.GetObjectContent(context.Background(), "quickstart", "main", &GetObjectContentOptions{
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	object, err := client.Objects.GetObjectContent(ctx, "quickstart", "main", &GetObjectContentOptions{
 		Path: path,
-		Range: &RangeByteSize{
-			Start: 0,
-			End:   10,
-		},
+		//Range: &RangeByteSize{
+		//	Start: 0,
+		//	End:   10,
+		//},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -68,8 +81,8 @@ func TestObjects_GetObjectContent(t *testing.T) {
 	scanner := bufio.NewScanner(object.Body)
 	fmt.Printf("---------------------------- %s ----------------------------\n", path)
 	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Println(line)
+		//line := scanner.Text()
+		//fmt.Println(line)
 	}
 	if scanner.Err() != nil {
 		t.Fatal(scanner.Err())
