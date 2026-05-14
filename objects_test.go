@@ -75,6 +75,9 @@ func TestObjects_GetObjectContent(t *testing.T) {
 		//},
 	})
 	if err != nil {
+		if IsNotFound(err) {
+			t.Logf("Object does not exist")
+		}
 		t.Fatal(err)
 	}
 	defer object.Body.Close()
@@ -111,10 +114,13 @@ func TestObjects_GetObjectMetadata(t *testing.T) {
 	client := testClient()
 	//presign := true
 	object, err := client.Objects.GetObjectMetadata(context.Background(), "ua-1715352869", "staging-ds", &GetObjectMetadataOptions{
-		Path: "Trainingdata.jsonl.1773628775650",
+		Path: "ds-43.jsonl.1773821236318",
 		//Presign: &presign,
 	})
 	if err != nil {
+		if IsNotFound(err) {
+			t.Logf("Object does not exist")
+		}
 		t.Fatal(err)
 	}
 	fmt.Printf("Metadata: %+v\n", object)
