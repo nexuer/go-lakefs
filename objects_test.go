@@ -60,6 +60,20 @@ func TestObjects_ListObjects(t *testing.T) {
 	fmt.Println(objects)
 }
 
+func TestObjects_RewriteAllObjectMetadata(t *testing.T) {
+	client := testClient()
+	ctx := t.Context()
+	err := client.Objects.RewriteAllObjectMetadata(ctx, "ua-shard-1", "main", &RewriteAllObjectMetadataOptions{
+		Path: "users/1/model_evaluation/1/dataset_merge/dataset.jsonl",
+		Set: ObjectUserMetadata{
+			"test": "tags_test.go",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestObjects_GetObjectContent(t *testing.T) {
 	client := testClient(true)
 

@@ -345,6 +345,20 @@ func (o *Objects) GetObjectMetadata(ctx context.Context, repository, ref string,
 	return &reply, nil
 }
 
+type RewriteAllObjectMetadataOptions struct {
+	Path string             `url:"path,omitempty"`
+	Set  ObjectUserMetadata `json:"set,omitempty"`
+}
+
+func (o *Objects) RewriteAllObjectMetadata(ctx context.Context, repository, branch string, opts *RewriteAllObjectMetadataOptions) error {
+	u := fmt.Sprintf("repositories/%s/branches/%s/objects/stat/user_metadata", repository, branch)
+	_, err := o.client.InvokeWithCredential(ctx, http.MethodPut, u, opts, nil, ghttp.Query(opts).Before)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 type ObjectCopyCreation struct {
 	SrcPath string `json:"src_path"`
 	SrcRef  string `json:"src_ref"`
