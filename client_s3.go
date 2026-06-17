@@ -44,7 +44,7 @@ func newS3Client(credential Credential) (*s3Client, error) {
 }
 
 func lakeFSS3Key(ref, path string) string {
-	path = strings.TrimLeft(path, "/")
+	path = strings.Trim(path, "/")
 	if path == "" {
 		return ref
 	}

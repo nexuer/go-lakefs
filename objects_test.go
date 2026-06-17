@@ -73,7 +73,7 @@ func TestObjects_RewriteAllObjectMetadata(t *testing.T) {
 func TestObjects_GetObjectContent(t *testing.T) {
 	client := testClient(true)
 
-	path := "go.mod"
+	path := "index.html"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
