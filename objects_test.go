@@ -12,8 +12,8 @@ import (
 func TestObjects_CreateObject(t *testing.T) {
 	client := testClient(true)
 
-	path := "./go.mod"
-	repoPath := "go.mod"
+	path := "./demo/LakeFS-Versioned-DataHub/web/index.html"
+	repoPath := "index.html"
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -24,10 +24,6 @@ func TestObjects_CreateObject(t *testing.T) {
 	defer cancel()
 	obj, err := client.Objects.CreateObject(ctx, "quickstart", "main", file, &CreateObjectOptions{
 		Path: repoPath,
-		//S3UploadOptions: &S3UploadOptions{
-		//	Concurrency:   10,
-		//	PartSizeBytes: 1024 * 1024 * 10,
-		//},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -83,10 +79,10 @@ func TestObjects_GetObjectContent(t *testing.T) {
 	defer cancel()
 	object, err := client.Objects.GetObjectContent(ctx, "quickstart", "main", &GetObjectContentOptions{
 		Path: path,
-		//Range: &RangeByteSize{
-		//	Start: 0,
-		//	End:   10,
-		//},
+		Range: &RangeByteSize{
+			Start: 0,
+			End:   1000,
+		},
 	})
 	if err != nil {
 		if IsNotFound(err) {
@@ -98,8 +94,8 @@ func TestObjects_GetObjectContent(t *testing.T) {
 	scanner := bufio.NewScanner(object.Body)
 	fmt.Printf("---------------------------- %s ----------------------------\n", path)
 	for scanner.Scan() {
-		//line := scanner.Text()
-		//fmt.Println(line)
+		line := scanner.Text()
+		fmt.Println(line)
 	}
 	if scanner.Err() != nil {
 		t.Fatal(scanner.Err())
@@ -138,4 +134,44 @@ func TestObjects_GetObjectMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Printf("Metadata: %+v\n", object)
+}
+
+func TestObjects_UploadDirectory(t *testing.T) {
+	client := testClient(true)
+
+	dir := "./demo"
+	stat, err := client.Objects.UploadDirectory(t.Context(), "quickstart", "main", &UploadDirectoryOptions{
+		Source:    dir,
+		Recursive: true,
+		Path:      "demo/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Upload Directory: %+v\n", stat)
+}
+
+func TestObjects_DeleteDirectory(t *testing.T) {
+	client := testClient(true)
+
+	stat, err := client.Objects.DeleteDirectory(t.Context(), "quickstart", "main", &DeleteDirectoryOptions{
+		Path: "demo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Delete Directory: %+v\n", stat)
+}
+
+func TestObjects_DownloadDirectory(t *testing.T) {
+	client := testClient(true)
+	stat, err := client.Objects.DownloadDirectory(t.Context(), "quickstart", "main", &DownloadDirectoryOptions{
+		Path:        "demo",
+		Destination: "demo-2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Download Directory: %+v\n", stat)
+
 }

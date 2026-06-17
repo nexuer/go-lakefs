@@ -36,3 +36,13 @@ func IsNotFound(err error) bool {
 	}
 	return StatusCode(err) == http.StatusNotFound
 }
+
+func newStatusCode(code int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &ghttp.Error{
+		StatusCode: http.StatusNotFound,
+		Err:        err,
+	}
+}

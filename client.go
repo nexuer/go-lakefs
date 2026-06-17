@@ -72,8 +72,8 @@ func NewClient(credential Credential, opts ...*Options) *Client {
 }
 
 func (c *Client) s3() *s3Client {
-	c.mu.RLocker()
-	defer c.mu.RLocker()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.s3Client
 }
 

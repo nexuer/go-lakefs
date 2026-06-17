@@ -1,13 +1,14 @@
 package lakefs
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
+	"mime"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,57 +31,81 @@ func (r RangeByteSize) String() string {
 }
 
 type GetObjectContentOptions struct {
+	// Range downloads a byte range with a single S3 GetObject request.
+	// When Range is set, Concurrency, GetObjectBufferSize, and PartBodyMaxRetries are not used.
 	Range       *RangeByteSize `url:"-"`
 	IfNoneMatch string         `url:"-"`
 
 	Path string `url:"path,omitempty"`
 
-	// S3 控制开关
-	// 如果为 true，强制不使用 s3 的transfermanager，走 REST API
-	DisableS3 bool `url:"-"`
-	// 与Range互斥，设置了Range则不生效
-	S3GetObjectOptions *S3GetObjectOptions `url:"-"`
+	// The number of goroutines to spin up in parallel per call to transfer single object parts or directory objects.
+	// If this is set to zero, the default transfer concurrency is used.
+	//
+	// The concurrency pool is not shared between multiple API calls.
+	// Default: 5
+	// Not used when Range is set.
+	Concurrency int
+
+	// Max size for the GetObject memory buffer. The reader returned from GetObject can buffer up to
+	// <GetObjectBufferSize> bytes of data at any time and only reads more data when user completely consumes
+	// current data buffered. This mechanism avoids unbounded memory usage when downloading large object via GetObject
+	// Default: 50 MiB
+	// Not used when Range is set.
+	GetObjectBufferSize int64
+
+	// PartBodyMaxRetries is the number of retry attempts to make for failed part downloads.
+	// Default: 3
+	// Not used when Range is set.
+	PartBodyMaxRetries int
 }
 
-func (g *GetObjectContentOptions) setS3GetOptions(transfer *transfermanager.Options) {
-	if g == nil || g.S3GetObjectOptions == nil {
+func (o *GetObjectContentOptions) setS3GetOptions(transfer *transfermanager.Options) {
+	if o == nil {
 		return
 	}
-	g.S3GetObjectOptions.set(transfer)
+	if o.GetObjectBufferSize > 0 {
+		transfer.GetObjectBufferSize = o.GetObjectBufferSize
+	}
+	if o.PartBodyMaxRetries > 0 {
+		transfer.PartBodyMaxRetries = o.PartBodyMaxRetries
+	}
+	if o.Concurrency > 0 {
+		transfer.Concurrency = o.Concurrency
+	}
 }
 
-func (g *GetObjectContentOptions) setS3TransferInput(input *transfermanager.GetObjectInput) {
-	if g == nil {
+func (o *GetObjectContentOptions) setS3TransferInput(input *transfermanager.GetObjectInput) {
+	if o == nil {
 		return
 	}
-	if g.IfNoneMatch != "" {
-		input.IfNoneMatch = aws.String(g.IfNoneMatch)
+	if o.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(o.IfNoneMatch)
 	}
 }
 
-func (g *GetObjectContentOptions) setS3Input(input *s3.GetObjectInput) {
-	if g == nil {
+func (o *GetObjectContentOptions) setS3Input(input *s3.GetObjectInput) {
+	if o == nil {
 		return
 	}
-	if g.IfNoneMatch != "" {
-		input.IfNoneMatch = aws.String(g.IfNoneMatch)
+	if o.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(o.IfNoneMatch)
 	}
 }
 
-func (g *GetObjectContentOptions) Request() []ghttp.RequestFunc {
-	if g == nil {
+func (o *GetObjectContentOptions) Request() []ghttp.RequestFunc {
+	if o == nil {
 		return nil
 	}
-	if g.Range == nil && g.IfNoneMatch == "" {
+	if o.Range == nil && o.IfNoneMatch == "" {
 		return nil
 	}
 	return []ghttp.RequestFunc{
 		func(request *http.Request) error {
-			if g.IfNoneMatch != "" {
-				request.Header.Set("If-None-Match", g.IfNoneMatch)
+			if o.IfNoneMatch != "" {
+				request.Header.Set("If-None-Match", o.IfNoneMatch)
 			}
-			if g.Range != nil {
-				request.Header.Set("Range", g.Range.String())
+			if o.Range != nil {
+				request.Header.Set("Range", o.Range.String())
 			}
 
 			return nil
@@ -116,25 +141,54 @@ type ObjectContent struct {
 }
 
 func (o *Objects) GetObjectContent(ctx context.Context, repository, ref string, opts *GetObjectContentOptions) (*ObjectContent, error) {
-	if opts != nil && !opts.DisableS3 {
-		s3cc := o.client.s3()
-		if s3cc != nil {
-			return s3cc.GetObjectContent(ctx, repository, ref, opts)
-		}
+	if opts == nil {
+		return nil, errors.New("get object content options is nil")
 	}
+	if opts.Path == "" {
+		return nil, errors.New("object path is empty")
+	}
+	s3cc := o.client.s3()
+	return s3cc.GetObjectContent(ctx, repository, ref, opts)
+}
 
-	u := fmt.Sprintf("repositories/%s/refs/%s/objects", repository, ref)
-	resp, err := o.client.InvokeWithCredential(ctx, http.MethodGet, u, opts, nil, opts.Request()...)
-	if err != nil {
-		return nil, err
-	}
-	headers := NewObjectHeaders(resp)
-	oc := &ObjectContent{
-		Body:    resp.Body,
-		Headers: headers,
-	}
+type DownloadDirectoryOptions struct {
+	Path        string
+	Destination string
 
-	return oc, nil
+	// IgnoreErrors controls whether DownloadDirectory continues when individual objects fail to download.
+	// Default: false
+	IgnoreErrors bool
+
+	// Concurrency is the number of goroutines to use for downloading objects.
+	// The concurrency pool is not shared between multiple calls.
+	// Default: 5
+	Concurrency int
+}
+
+func (o *DownloadDirectoryOptions) setS3DownloadOptions(transfer *transfermanager.Options) {
+	if o == nil {
+		return
+	}
+	transfer.DisableChecksumValidation = true
+	if o.Concurrency > 0 {
+		transfer.Concurrency = o.Concurrency
+	}
+}
+
+type DownloadDirectoryStats struct {
+	ObjectsDownloaded int64
+	ObjectsFailed     int64
+}
+
+func (o *Objects) DownloadDirectory(ctx context.Context, repository, ref string, opts *DownloadDirectoryOptions) (*DownloadDirectoryStats, error) {
+	if opts == nil {
+		return nil, errors.New("download directory options is nil")
+	}
+	if opts.Destination == "" {
+		return nil, errors.New("download directory destination is empty")
+	}
+	s3cc := o.client.s3()
+	return s3cc.DownloadDirectory(ctx, repository, ref, opts)
 }
 
 type ObjectExistsOptions struct {
@@ -210,13 +264,117 @@ type CreateObjectOptions struct {
 	IfNoneMatch string `url:"-"`
 	IfMatch     string `url:"-"`
 
-	Force bool   `url:"force,omitempty"`
-	Path  string `url:"path,omitempty"`
+	//Force bool   `url:"force,omitempty"` // force is only supported by lakeFS REST upload API, not S3 gateway upload
+	Path string `url:"path,omitempty"`
 
-	// S3 控制开关
-	// 如果为 true，强制不使用 transfermanager，走 REST API
-	DisableS3       bool             `url:"-"`
-	S3UploadOptions *S3UploadOptions `url:"-"`
+	// S3 transfer options.
+	ContentType string
+
+	// PartSizeBytes is the buffer size, in bytes, used to buffer data into multipart upload parts.
+	// The minimum S3 multipart upload part size is 5 MiB.
+	// Default: 8 MiB
+	PartSizeBytes int64
+
+	// Concurrency is the number of goroutines to use for multipart upload.
+	// The concurrency pool is not shared between multiple calls.
+	// Default: 5
+	Concurrency int
+
+	// MultipartUploadThreshold is the object size threshold, in bytes, for using multipart upload.
+	// Default: 16 MiB
+	MultipartUploadThreshold int64
+}
+
+type UploadDirectoryOptions struct {
+	// Source is the local directory to upload.
+	Source string
+
+	// Path is the remote directory path under the lakeFS branch.
+	Path string
+
+	// Recursive controls whether to upload files in subdirectories.
+	// Default: false
+	Recursive bool
+
+	// FollowSymbolicLinks controls whether symbolic links are followed while traversing Source.
+	// Default: false
+	FollowSymbolicLinks bool
+
+	// IgnoreErrors controls whether UploadDirectory continues when individual files fail to upload.
+	// Default: false
+	IgnoreErrors bool
+
+	// PartSizeBytes is the buffer size, in bytes, used to buffer data into multipart upload parts.
+	// The minimum S3 multipart upload part size is 5 MiB.
+	// Default: 8 MiB
+	PartSizeBytes int64
+
+	// Concurrency is the number of goroutines to use for multipart upload.
+	// The concurrency pool is not shared between multiple calls.
+	// Default: 5
+	Concurrency int
+
+	// MultipartUploadThreshold is the object size threshold, in bytes, for using multipart upload.
+	// Default: 16 MiB
+	MultipartUploadThreshold int64
+}
+
+func (o *UploadDirectoryOptions) setS3UploadOptions(transfer *transfermanager.Options) {
+	if o == nil {
+		return
+	}
+	if o.PartSizeBytes > 0 {
+		transfer.PartSizeBytes = o.PartSizeBytes
+	}
+	if o.MultipartUploadThreshold > 0 {
+		transfer.MultipartUploadThreshold = o.MultipartUploadThreshold
+	}
+	if o.Concurrency > 0 {
+		transfer.Concurrency = o.Concurrency
+	}
+}
+
+type UploadDirectoryStats struct {
+	ObjectsUploaded int64
+	ObjectsFailed   int64
+}
+
+func (o *Objects) UploadDirectory(ctx context.Context, repository, branch string, opts *UploadDirectoryOptions) (*UploadDirectoryStats, error) {
+	if opts == nil {
+		return nil, errors.New("upload directory options is nil")
+	}
+	if opts.Source == "" {
+		return nil, errors.New("upload directory source is empty")
+	}
+	s3cc := o.client.s3()
+	return s3cc.UploadDirectory(ctx, repository, branch, opts)
+}
+
+func (c *CreateObjectOptions) contentType(path string) string {
+	defaultContentType := "application/octet-stream"
+	if c == nil || path == "" {
+		return defaultContentType
+	}
+	mimeType := mime.TypeByExtension(filepath.Ext(path))
+	if mimeType == "" {
+		return defaultContentType
+	}
+	return mimeType
+}
+
+func (c *CreateObjectOptions) setS3UploadOptions(transfer *transfermanager.Options) {
+	if c == nil {
+		return
+	}
+	if c.PartSizeBytes > 0 {
+		transfer.PartSizeBytes = c.PartSizeBytes
+	}
+	if c.MultipartUploadThreshold > 0 {
+		transfer.MultipartUploadThreshold = c.MultipartUploadThreshold
+	}
+	if c.Concurrency > 0 {
+		transfer.Concurrency = c.Concurrency
+	}
 }
 
 func (c *CreateObjectOptions) setS3TransferInput(input *transfermanager.UploadObjectInput) {
@@ -229,13 +387,6 @@ func (c *CreateObjectOptions) setS3TransferInput(input *transfermanager.UploadOb
 	if c.IfMatch != "" {
 		input.IfMatch = aws.String(c.IfMatch)
 	}
-}
-
-func (c *CreateObjectOptions) setS3UploadOptions(transfer *transfermanager.Options) {
-	if c == nil || c.S3UploadOptions == nil {
-		return
-	}
-	c.S3UploadOptions.set(transfer)
 }
 
 func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
@@ -260,64 +411,53 @@ func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
 // CreateObject 直接上传文件到lakeFS
 // 如果你追求极致的上传性能（尤其是针对 TB 级数据或高并发场景），请走预签名 (Pre-signed) 模式
 func (o *Objects) CreateObject(ctx context.Context, repository, branch string, reader io.Reader, opts *CreateObjectOptions) (*ObjectStats, error) {
-	if opts != nil && !opts.DisableS3 {
-		s3cc := o.client.s3()
-		if s3cc != nil {
-			err := s3cc.CreateObject(ctx, repository, branch, reader, opts)
-			if err != nil {
-				return nil, err
-			}
-			return o.GetObjectMetadata(ctx, repository, branch, &GetObjectMetadataOptions{
-				Path: opts.Path,
-			})
-		}
+	if opts == nil {
+		return nil, errors.New("create object options is nil")
+	}
+	if opts.Path == "" {
+		return nil, errors.New("object path is empty")
 	}
 
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-
-	part, err := writer.CreateFormFile("content", opts.Path)
+	s3cc := o.client.s3()
+	err := s3cc.CreateObject(ctx, repository, branch, reader, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = io.Copy(part, reader)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = writer.Close(); err != nil {
-		return nil, err
-	}
-
-	u := o.client.API(fmt.Sprintf("repositories/%s/branches/%s/objects", repository, branch))
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, &body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	err = ghttp.SetQuery(req, opts)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := o.client.DoWithCredential(req, opts.Request()...)
-	if err != nil {
-		return nil, err
-	}
-	var reply ObjectStats
-	if err = ghttp.BindResponseBody(resp, &reply); err != nil {
-		return nil, err
-	}
-	return &reply, nil
+	return o.GetObjectMetadata(ctx, repository, branch, &GetObjectMetadataOptions{
+		Path: opts.Path,
+	})
 }
 
 type DeleteObjectOptions struct {
 	Force       bool   `url:"force,omitempty"`
 	NoTombstone bool   `url:"no_tombstone,omitempty"`
 	Path        string `url:"path,omitempty"`
+}
+
+type DeleteDirectoryOptions struct {
+	// Path is the remote directory path under the lakeFS branch.
+	Path string
+
+	// IgnoreErrors controls whether DeleteDirectory continues reporting success when S3 returns per-object delete errors.
+	// Default: false
+	IgnoreErrors bool
+}
+
+type DeleteDirectoryStats struct {
+	ObjectsDeleted int64
+	ObjectsFailed  int64
+}
+
+func (o *Objects) DeleteDirectory(ctx context.Context, repository, branch string, opts *DeleteDirectoryOptions) (*DeleteDirectoryStats, error) {
+	if opts == nil {
+		return nil, errors.New("delete directory options is nil")
+	}
+	if opts.Path == "" {
+		return nil, errors.New("delete directory path is empty")
+	}
+	s3cc := o.client.s3()
+	return s3cc.DeleteDirectory(ctx, repository, branch, opts)
 }
 
 func (o *Objects) DeleteObject(ctx context.Context, repository, branch string, opts *DeleteObjectOptions) error {

@@ -3,7 +3,9 @@ package lakefs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/nexuer/ghttp"
 )
 
@@ -40,38 +43,22 @@ func newS3Client(credential Credential) (*s3Client, error) {
 	}, nil
 }
 
-type S3UploadOptions struct {
-	// The buffer size (in bytes) to use when buffering data into chunks and
-	// sending them as parts to S3. The minimum allowed part size is 5MB, and
-	// if this value is set to zero, the DefaultUploadPartSize value will be used.
-	// Default: 1024 * 1024 * 8
-	PartSizeBytes int64
-
-	// The number of goroutines to spin up in parallel per call to transfer single object parts or directory objects.
-	// If this is set to zero, the DefaultUploadConcurrency value will be used.
-	//
-	// The concurrency pool is not shared between multiple API calls.
-	// Default: 5
-	Concurrency int
-
-	// The threshold bytes to decide when the file should be multi-uploaded
-	// Default: 1024 * 1024 * 16
-	MultipartUploadThreshold int64
+func lakeFSS3Key(ref, path string) string {
+	path = strings.TrimLeft(path, "/")
+	if path == "" {
+		return ref
+	}
+	return ref + "/" + path
 }
 
-func (o *S3UploadOptions) set(transfer *transfermanager.Options) {
-	if o == nil {
-		return
+func lakeFSS3Prefix(ref, path string) string {
+	ref = strings.Trim(ref, "/")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return ref + "/"
 	}
-	if o.PartSizeBytes > 0 {
-		transfer.PartSizeBytes = o.PartSizeBytes
-	}
-	if o.MultipartUploadThreshold > 0 {
-		transfer.MultipartUploadThreshold = o.MultipartUploadThreshold
-	}
-	if o.Concurrency > 0 {
-		transfer.Concurrency = o.Concurrency
-	}
+
+	return ref + "/" + path + "/"
 }
 
 // CreateObject 支持分片上传、多协程上传
@@ -79,10 +66,12 @@ func (s *s3Client) CreateObject(ctx context.Context, repository, branch string, 
 	transfer := transfermanager.New(s.cc, func(o *transfermanager.Options) {
 		opts.setS3UploadOptions(o)
 	})
+
 	input := &transfermanager.UploadObjectInput{
-		Bucket: aws.String(repository),
-		Key:    aws.String(branch + "/" + strings.TrimLeft(opts.Path, "/")),
-		Body:   reader,
+		Bucket:      aws.String(repository),
+		Key:         aws.String(lakeFSS3Key(branch, opts.Path)),
+		Body:        reader,
+		ContentType: aws.String(opts.contentType(opts.Path)),
 	}
 
 	opts.setS3TransferInput(input)
@@ -92,43 +81,125 @@ func (s *s3Client) CreateObject(ctx context.Context, repository, branch string, 
 	return err
 }
 
-type S3GetObjectOptions struct {
-	// The number of goroutines to spin up in parallel per call to transfer single object parts or directory objects.
-	// If this is set to zero, the DefaultUploadConcurrency value will be used.
-	//
-	// The concurrency pool is not shared between multiple API calls.
-	// Default: 5
-	Concurrency int
+func (s *s3Client) UploadDirectory(ctx context.Context, repository, branch string, opts *UploadDirectoryOptions) (*UploadDirectoryStats, error) {
+	transfer := transfermanager.New(s.cc, func(o *transfermanager.Options) {
+		opts.setS3UploadOptions(o)
+	})
 
-	// Max size for the GetObject memory buffer. The reader returned from GetObject can buffer up to
-	// <GetObjectBufferSize> bytes of data at any time and only reads more data when user completely consumes
-	// current data buffered. This mechanism avoids unbounded memory usage when downloading large object via GetObject
-	// Default: 1024 * 1024 * 50
-	GetObjectBufferSize int64
+	failurePolicy := transfermanager.UploadDirectoryFailurePolicy(transfermanager.TerminateUploadPolicy{})
+	if opts.IgnoreErrors {
+		failurePolicy = transfermanager.IgnoreUploadFailurePolicy{}
+	}
+	input := &transfermanager.UploadDirectoryInput{
+		Bucket:              aws.String(repository),
+		Source:              aws.String(opts.Source),
+		KeyPrefix:           aws.String(lakeFSS3Key(branch, opts.Path)),
+		Recursive:           aws.Bool(opts.Recursive),
+		FollowSymbolicLinks: aws.Bool(opts.FollowSymbolicLinks),
+		FailurePolicy:       failurePolicy,
+	}
 
-	// PartBodyMaxRetries is the number of retry attempts to make for failed part downloads.
-	// Default: 3
-	PartBodyMaxRetries int
+	out, err := transfer.UploadDirectory(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UploadDirectoryStats{
+		ObjectsUploaded: out.ObjectsUploaded,
+		ObjectsFailed:   out.ObjectsFailed,
+	}, nil
 }
 
-func (o *S3GetObjectOptions) set(transfer *transfermanager.Options) {
-	if o == nil {
-		return
+func (s *s3Client) DeleteDirectory(ctx context.Context, repository, branch string, opts *DeleteDirectoryOptions) (*DeleteDirectoryStats, error) {
+	bucket := aws.String(repository)
+	prefix := aws.String(lakeFSS3Prefix(branch, opts.Path))
+	var objectsDeleted int64
+	var continuationToken *string
+
+	for {
+		listOut, err := s.cc.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            bucket,
+			Prefix:            prefix,
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		objects := make([]s3types.ObjectIdentifier, 0, len(listOut.Contents))
+		for _, object := range listOut.Contents {
+			if object.Key == nil {
+				continue
+			}
+			objects = append(objects, s3types.ObjectIdentifier{Key: object.Key})
+		}
+
+		for len(objects) > 0 {
+			batchSize := len(objects)
+			if batchSize > 1000 {
+				batchSize = 1000
+			}
+			deleteOut, err := s.cc.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+				Bucket: bucket,
+				Delete: &s3types.Delete{
+					Objects: objects[:batchSize],
+					Quiet:   aws.Bool(true),
+				},
+			})
+			if err != nil {
+				return nil, err
+			}
+			objectsDeleted += int64(batchSize - len(deleteOut.Errors))
+			if len(deleteOut.Errors) > 0 && !opts.IgnoreErrors {
+				firstErr := deleteOut.Errors[0]
+				return &DeleteDirectoryStats{
+					ObjectsDeleted: objectsDeleted,
+					ObjectsFailed:  int64(len(deleteOut.Errors)),
+				}, fmt.Errorf("delete directory failed for %d objects, first key %q: %s", len(deleteOut.Errors), aws.ToString(firstErr.Key), aws.ToString(firstErr.Message))
+			}
+			objects = objects[batchSize:]
+		}
+
+		if !aws.ToBool(listOut.IsTruncated) {
+			break
+		}
+		continuationToken = listOut.NextContinuationToken
 	}
-	if o.GetObjectBufferSize > 0 {
-		transfer.GetObjectBufferSize = o.GetObjectBufferSize
+
+	return &DeleteDirectoryStats{ObjectsDeleted: objectsDeleted}, nil
+}
+
+func (s *s3Client) DownloadDirectory(ctx context.Context, repository, ref string, opts *DownloadDirectoryOptions) (*DownloadDirectoryStats, error) {
+	transfer := transfermanager.New(s.cc, func(o *transfermanager.Options) {
+		opts.setS3DownloadOptions(o)
+	})
+
+	failurePolicy := transfermanager.DownloadDirectoryFailurePolicy(transfermanager.TerminateDownloadPolicy{})
+	if opts.IgnoreErrors {
+		failurePolicy = transfermanager.IgnoreDownloadFailurePolicy{}
 	}
-	if o.PartBodyMaxRetries > 0 {
-		transfer.PartBodyMaxRetries = o.PartBodyMaxRetries
+	out, err := transfer.DownloadDirectory(ctx, &transfermanager.DownloadDirectoryInput{
+		Bucket:        aws.String(repository),
+		Destination:   aws.String(opts.Destination),
+		KeyPrefix:     aws.String(lakeFSS3Prefix(ref, opts.Path)),
+		FailurePolicy: failurePolicy,
+	})
+	if err != nil {
+		return nil, err
 	}
-	if o.Concurrency > 0 {
-		transfer.Concurrency = o.Concurrency
+	stats := &DownloadDirectoryStats{
+		ObjectsDownloaded: out.ObjectsDownloaded,
+		ObjectsFailed:     out.ObjectsFailed,
 	}
+	if stats.ObjectsDownloaded == 0 && stats.ObjectsFailed == 0 {
+		return stats, newStatusCode(http.StatusNotFound, fmt.Errorf("directory %q not found", opts.Path))
+	}
+	return stats, nil
 }
 
 func (s *s3Client) GetObjectContent(ctx context.Context, repository, ref string, opts *GetObjectContentOptions) (*ObjectContent, error) {
 	bucket := aws.String(repository)
-	key := aws.String(ref + "/" + strings.TrimLeft(opts.Path, "/"))
+	key := aws.String(lakeFSS3Key(ref, opts.Path))
 	if opts.Range != nil {
 		input := &s3.GetObjectInput{
 			Bucket: bucket,
