@@ -23,7 +23,7 @@ func StatusCode(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
-	code, ok := ghttp.StatusForErr(err)
+	code, ok := ghttp.StatusCode(err)
 	if ok {
 		return code
 	}

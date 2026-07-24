@@ -92,14 +92,14 @@ func (o *GetObjectContentOptions) setS3Input(input *s3.GetObjectInput) {
 	}
 }
 
-func (o *GetObjectContentOptions) Request() []ghttp.RequestFunc {
+func (o *GetObjectContentOptions) Request() []ghttp.BeforeHook {
 	if o == nil {
 		return nil
 	}
 	if o.Range == nil && o.IfNoneMatch == "" {
 		return nil
 	}
-	return []ghttp.RequestFunc{
+	return []ghttp.BeforeHook{
 		func(request *http.Request) error {
 			if o.IfNoneMatch != "" {
 				request.Header.Set("If-None-Match", o.IfNoneMatch)
@@ -197,14 +197,14 @@ type ObjectExistsOptions struct {
 	Path string `url:"path,omitempty"`
 }
 
-func (g *ObjectExistsOptions) Request() []ghttp.RequestFunc {
+func (g *ObjectExistsOptions) Request() []ghttp.BeforeHook {
 	if g == nil {
 		return nil
 	}
 	if g.Range == nil {
 		return nil
 	}
-	return []ghttp.RequestFunc{
+	return []ghttp.BeforeHook{
 		func(request *http.Request) error {
 			if g.Range != nil {
 				request.Header.Set("Range", g.Range.String())
@@ -217,9 +217,9 @@ func (g *ObjectExistsOptions) Request() []ghttp.RequestFunc {
 
 func (o *Objects) ObjectExists(ctx context.Context, repository, ref string, opts *ObjectExistsOptions) (bool, *ObjectHeaders, error) {
 	u := fmt.Sprintf("repositories/%s/refs/%s/objects", repository, ref)
-	resp, err := o.client.InvokeWithCredential(ctx, http.MethodHead, u, opts, nil, opts.Request()...)
+	resp, err := o.client.InvokeWithCredential(ctx, http.MethodHead, u, opts, nil, ghttp.Before(opts.Request()...))
 	if err != nil {
-		code, _ := ghttp.StatusForErr(err)
+		code, _ := ghttp.StatusCode(err)
 		if code == http.StatusNotFound {
 			return false, nil, nil
 		}
@@ -389,11 +389,11 @@ func (c *CreateObjectOptions) setS3TransferInput(input *transfermanager.UploadOb
 	}
 }
 
-func (c *CreateObjectOptions) Request() []ghttp.RequestFunc {
+func (c *CreateObjectOptions) Request() []ghttp.BeforeHook {
 	if c == nil {
 		return nil
 	}
-	return []ghttp.RequestFunc{
+	return []ghttp.BeforeHook{
 		func(request *http.Request) error {
 			if c.IfMatch != "" {
 				request.Header.Set("If-Match", c.IfMatch)
@@ -463,9 +463,7 @@ func (o *Objects) DeleteDirectory(ctx context.Context, repository, branch string
 func (o *Objects) DeleteObject(ctx context.Context, repository, branch string, opts *DeleteObjectOptions) error {
 	u := fmt.Sprintf("repositories/%s/branches/%s/objects", repository, branch)
 
-	_, err := o.client.InvokeWithCredential(ctx, http.MethodDelete, u, nil, nil, func(request *http.Request) error {
-		return ghttp.SetQuery(request, opts)
-	})
+	_, err := o.client.InvokeWithCredential(ctx, http.MethodDelete, u, nil, nil, ghttp.Query(opts))
 	return err
 }
 
@@ -487,12 +485,12 @@ func (o *Objects) GetObjectMetadata(ctx context.Context, repository, ref string,
 
 type RewriteAllObjectMetadataOptions struct {
 	Path string             `url:"path,omitempty"`
-	Set  ObjectUserMetadata `json:"set,omitempty"`
+	Set  ObjectUserMetadata `json:"set,omitempty" url:"-"`
 }
 
 func (o *Objects) RewriteAllObjectMetadata(ctx context.Context, repository, branch string, opts *RewriteAllObjectMetadataOptions) error {
 	u := fmt.Sprintf("repositories/%s/branches/%s/objects/stat/user_metadata", repository, branch)
-	_, err := o.client.InvokeWithCredential(ctx, http.MethodPut, u, opts, nil, ghttp.Query(opts).Before)
+	_, err := o.client.InvokeWithCredential(ctx, http.MethodPut, u, opts, nil, ghttp.Query(opts))
 	if err != nil {
 		return err
 	}

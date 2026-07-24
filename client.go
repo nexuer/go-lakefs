@@ -140,48 +140,27 @@ func (c *Client) API(path string, ver ...APIVersion) string {
 	return fmt.Sprintf("/api/%s/%s", c.apiVersion, path)
 }
 
-func (c *Client) InvokeWithCredential(ctx context.Context, method, path string, args any, reply any, fn ...ghttp.RequestFunc) (*http.Response, error) {
+func (c *Client) InvokeWithCredential(ctx context.Context, method, path string, args any, reply any, fn ...ghttp.CallOption) (*http.Response, error) {
 	if c.credential == nil {
 		return nil, errors.New("credential is nil")
 	}
-	fns := make([]ghttp.RequestFunc, 1, len(fn)+1)
-	fns[0] = func(request *http.Request) error {
+	fns := make([]ghttp.CallOption, 0, len(fn)+1)
+	hook := func(request *http.Request) error {
 		c.credential.BeforeRequest(request)
 		return nil
 	}
+	fns = append(fns, ghttp.Before(hook))
 	fns = append(fns, fn...)
 	return c.Invoke(ctx, method, c.API(path), args, reply, fns...)
 }
 
-func (c *Client) Invoke(ctx context.Context, method, path string, args any, reply any, fn ...ghttp.RequestFunc) (*http.Response, error) {
-	opts := &ghttp.CallOptions{
-		BeforeHooks: fn,
-	}
+func (c *Client) Invoke(ctx context.Context, method, path string, args any, reply any, fn ...ghttp.CallOption) (*http.Response, error) {
+	opts := make([]ghttp.CallOption, 0, len(fn)+1)
+	opts = append(opts, fn...)
 	if (method == http.MethodGet || method == http.MethodHead) && args != nil {
-		opts.Query = args
+		opts = append(opts, ghttp.Query(args))
 		args = nil
 	}
 
-	return c.cc.Invoke(ctx, method, path, args, reply, opts)
-}
-
-func (c *Client) DoWithCredential(req *http.Request, fn ...ghttp.RequestFunc) (*http.Response, error) {
-	if c.credential == nil {
-		return nil, errors.New("credential is nil")
-	}
-	fns := make([]ghttp.RequestFunc, 1, len(fn)+1)
-	fns[0] = func(request *http.Request) error {
-		c.credential.BeforeRequest(request)
-		return nil
-	}
-	fns = append(fns, fn...)
-	return c.Do(req, fns...)
-}
-
-func (c *Client) Do(req *http.Request, fn ...ghttp.RequestFunc) (*http.Response, error) {
-	opts := &ghttp.CallOptions{
-		BeforeHooks: fn,
-	}
-
-	return c.cc.Do(req, opts)
+	return c.cc.Invoke(ctx, method, path, args, reply, opts...)
 }

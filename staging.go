@@ -39,11 +39,11 @@ type PutBackingOptions struct {
 	StagingMetadata *StagingMetadata `json:"-"`
 }
 
-func (p *PutBackingOptions) Request() []ghttp.RequestFunc {
+func (p *PutBackingOptions) Request() []ghttp.BeforeHook {
 	if p == nil {
 		return nil
 	}
-	return []ghttp.RequestFunc{
+	return []ghttp.BeforeHook{
 		func(request *http.Request) error {
 			if p.IfNoneMatch != "" {
 				request.Header.Set("If-None-Match", p.IfNoneMatch)
@@ -75,7 +75,7 @@ func (s *Staging) PutBacking(ctx context.Context, repository, branch string, opt
 		u += "?path=" + url.QueryEscape(opts.Path)
 	}
 	var row ObjectStats
-	_, err := s.client.InvokeWithCredential(ctx, http.MethodPut, u, opts.StagingMetadata, &row, opts.Request()...)
+	_, err := s.client.InvokeWithCredential(ctx, http.MethodPut, u, opts.StagingMetadata, &row, ghttp.Before(opts.Request()...))
 	if err != nil {
 		return nil, err
 	}

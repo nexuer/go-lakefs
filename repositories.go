@@ -160,14 +160,14 @@ type PutBranchProtectionRulesOptions struct {
 	Rules   []*BranchProtectionRule
 }
 
-func (p *PutBranchProtectionRulesOptions) Request() []ghttp.RequestFunc {
+func (p *PutBranchProtectionRulesOptions) Request() []ghttp.BeforeHook {
 	if p == nil {
 		return nil
 	}
 	if p.IfMatch == "" {
 		return nil
 	}
-	return []ghttp.RequestFunc{
+	return []ghttp.BeforeHook{
 		func(request *http.Request) error {
 			request.Header.Set("If-Match", p.IfMatch)
 			return nil
@@ -177,6 +177,6 @@ func (p *PutBranchProtectionRulesOptions) Request() []ghttp.RequestFunc {
 
 func (r *Repositories) PutBranchProtectionRules(ctx context.Context, id string, opts *PutBranchProtectionRulesOptions) error {
 	u := fmt.Sprintf("repositories/%s/settings/branch_protection", id)
-	_, err := r.client.InvokeWithCredential(ctx, http.MethodPut, u, opts.Rules, nil, opts.Request()...)
+	_, err := r.client.InvokeWithCredential(ctx, http.MethodPut, u, opts.Rules, nil, ghttp.Before(opts.Request()...))
 	return err
 }
